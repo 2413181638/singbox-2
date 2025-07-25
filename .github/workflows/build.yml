@@ -1,0 +1,188 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+env:
+  GO_VERSION: '1.21'
+  NODE_VERSION: '18'
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        platform:
+          - os: ubuntu-latest
+            name: linux
+            arch: amd64
+            ext: ''
+          - os: ubuntu-latest
+            name: linux
+            arch: arm64
+            ext: ''
+          - os: windows-latest
+            name: windows
+            arch: amd64
+            ext: '.exe'
+          - os: windows-latest
+            name: windows
+            arch: arm64
+            ext: '.exe'
+          - os: macos-latest
+            name: darwin
+            arch: amd64
+            ext: ''
+          - os: macos-latest
+            name: darwin
+            arch: arm64
+            ext: ''
+
+    runs-on: ${{ matrix.platform.os }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Install Linux dependencies
+        if: matrix.platform.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev
+
+      - name: Build for Linux
+        if: matrix.platform.name == 'linux'
+        run: |
+          export CGO_ENABLED=1
+          export GOOS=linux
+          export GOARCH=${{ matrix.platform.arch }}
+          if [ "${{ matrix.platform.arch }}" = "arm64" ]; then
+            sudo apt-get install -y gcc-aarch64-linux-gnu
+            export CC=aarch64-linux-gnu-gcc
+          fi
+          wails build -platform linux/${{ matrix.platform.arch }} -ldflags "-s -w"
+
+      - name: Build for Windows
+        if: matrix.platform.name == 'windows'
+        run: |
+          $env:CGO_ENABLED = "1"
+          $env:GOOS = "windows"
+          $env:GOARCH = "${{ matrix.platform.arch }}"
+          wails build -platform windows/${{ matrix.platform.arch }} -ldflags "-s -w"
+
+      - name: Build for macOS
+        if: matrix.platform.name == 'darwin'
+        run: |
+          export CGO_ENABLED=1
+          export GOOS=darwin
+          export GOARCH=${{ matrix.platform.arch }}
+          wails build -platform darwin/${{ matrix.platform.arch }} -ldflags "-s -w"
+
+      - name: Package Linux
+        if: matrix.platform.name == 'linux'
+        run: |
+          cd build/bin
+          tar -czf singbox-xboard-client-${{ matrix.platform.name }}-${{ matrix.platform.arch }}.tar.gz singbox-xboard-client${{ matrix.platform.ext }}
+
+      - name: Package Windows
+        if: matrix.platform.name == 'windows'
+        run: |
+          cd build/bin
+          7z a singbox-xboard-client-${{ matrix.platform.name }}-${{ matrix.platform.arch }}.zip singbox-xboard-client${{ matrix.platform.ext }}
+
+      - name: Package macOS
+        if: matrix.platform.name == 'darwin'
+        run: |
+          cd build/bin
+          tar -czf singbox-xboard-client-${{ matrix.platform.name }}-${{ matrix.platform.arch }}.tar.gz singbox-xboard-client.app
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: singbox-xboard-client-${{ matrix.platform.name }}-${{ matrix.platform.arch }}
+          path: |
+            build/bin/*.tar.gz
+            build/bin/*.zip
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: artifacts
+
+      - name: Create release
+        uses: softprops/action-gh-release@v1
+        with:
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            artifacts/**/*.tar.gz
+            artifacts/**/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-docker:
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: singbox-xboard-client
+          tags: |
+            type=ref,event=tag
+            type=raw,value=latest
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
