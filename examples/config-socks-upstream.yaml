@@ -1,0 +1,19 @@
+inbound:
+  type: socks          # SOCKS5代理
+  port: 1080          # 监听端口
+  host: 127.0.0.1     # 监听地址
+
+outbound:
+  type: socks         # SOCKS出站
+  server: "proxy.example.com"  # 上游代理服务器
+  port: 1080          # 上游代理端口
+  username: "user"    # 用户名（可选）
+  password: "pass"    # 密码（可选）
+
+dns:
+  servers:
+    - 8.8.8.8         # Google DNS
+    - 1.1.1.1         # Cloudflare DNS
+
+log:
+  level: debug        # 调试日志级别

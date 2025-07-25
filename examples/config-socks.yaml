@@ -1,0 +1,17 @@
+inbound:
+  type: socks          # SOCKS5代理
+  port: 1080          # 监听端口
+  host: 127.0.0.1     # 监听地址
+
+outbound:
+  type: direct        # 直连出站
+  server: ""          # 服务器地址（直连时为空）
+  port: 0             # 服务器端口（直连时为0）
+
+dns:
+  servers:
+    - 8.8.8.8         # Google DNS
+    - 1.1.1.1         # Cloudflare DNS
+
+log:
+  level: info         # 日志级别

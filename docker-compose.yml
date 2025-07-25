@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  singbox-app:
+    build: .
+    container_name: singbox-app
+    restart: unless-stopped
+    ports:
+      - "1080:1080"  # SOCKS代理端口
+      - "8080:8080"  # Web管理界面端口
+    volumes:
+      - ./config:/etc/singbox-app  # 配置文件目录
+      - ./logs:/app/logs           # 日志目录
+    environment:
+      - TZ=Asia/Shanghai
+    networks:
+      - singbox-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  singbox-network:
+    driver: bridge
+
+volumes:
+  config:
+  logs:

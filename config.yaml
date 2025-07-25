@@ -1,0 +1,14 @@
+inbound:
+    type: socks
+    port: 1080
+    host: 127.0.0.1
+outbound:
+    type: direct
+    server: ""
+    port: 0
+dns:
+    servers:
+        - 8.8.8.8
+        - 1.1.1.1
+log:
+    level: info
