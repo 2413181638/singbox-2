@@ -1,0 +1,41 @@
+# Release definition for SingXClient
+project_name: singxclient
+release:
+  github:
+    owner: yourusername
+    name: singxclient
+  draft: false
+  prerelease: false
+
+builds:
+  - id: core
+    main: ./cmd/singxclient
+    binary: singxclient
+    goos:
+      - windows
+      - linux
+      - darwin
+      - android
+    goarch:
+      - amd64
+      - arm64
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+archives:
+  - id: default
+    format: zip
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - LICENSE
+      - docs/**/*
+
+checksum:
+  name_template: "checksums.txt"
+
+dockers: []
+
+signs: []
