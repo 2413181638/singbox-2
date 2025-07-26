@@ -10,27 +10,43 @@ on:
 
 env:
   GO_VERSION: '1.21'
+  NDK_VERSION: '25.2.9519653'
+  BUILD_TOOLS_VERSION: '34.0.0'
+  ANDROID_API_LEVEL: '21'
+  ANDROID_TARGET_API: '34'
 
 jobs:
-  build:
-    name: Build
+  # 桌面平台构建
+  build-desktop:
+    name: Build Desktop
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
         include:
           - os: ubuntu-latest
             goos: linux
             goarch: amd64
             output: singbox-xboard-linux-amd64
+          - os: ubuntu-latest
+            goos: linux
+            goarch: arm64
+            output: singbox-xboard-linux-arm64
           - os: windows-latest
             goos: windows
             goarch: amd64
             output: singbox-xboard-windows-amd64.exe
+          - os: windows-latest
+            goos: windows
+            goarch: 386
+            output: singbox-xboard-windows-386.exe
           - os: macos-latest
             goos: darwin
             goarch: amd64
             output: singbox-xboard-darwin-amd64
+          - os: macos-latest
+            goos: darwin
+            goarch: arm64
+            output: singbox-xboard-darwin-arm64
 
     steps:
     - name: Checkout code
@@ -49,15 +65,17 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-go-
 
-    - name: Download dependencies
+    - name: Install dependencies
       run: go mod download
 
     - name: Build
       env:
         GOOS: ${{ matrix.goos }}
         GOARCH: ${{ matrix.goarch }}
+        CGO_ENABLED: 0
       run: |
-        go build -trimpath -ldflags "-s -w -X main.Version=${{ github.ref_name }}" -o dist/${{ matrix.output }} ./cmd
+        mkdir -p dist
+        go build -ldflags "-s -w -X main.version=${{ github.ref_name }}" -o dist/${{ matrix.output }} ./cmd/main.go
 
     - name: Upload artifact
       uses: actions/upload-artifact@v3
@@ -65,77 +83,102 @@ jobs:
         name: ${{ matrix.output }}
         path: dist/${{ matrix.output }}
 
-  build-multi-arch:
-    name: Build Multi-Arch
+  # Android APK 构建
+  build-android:
+    name: Build Android APK
     runs-on: ubuntu-latest
+    
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: ${{ env.GO_VERSION }}
-
-    - name: Build all platforms
-      run: |
-        # Linux ARM
-        GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -ldflags "-s -w" -o dist/singbox-xboard-linux-armv7 ./cmd
-        GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o dist/singbox-xboard-linux-arm64 ./cmd
-        
-        # Windows 386
-        GOOS=windows GOARCH=386 go build -trimpath -ldflags "-s -w" -o dist/singbox-xboard-windows-386.exe ./cmd
-        
-        # macOS ARM64
-        GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o dist/singbox-xboard-darwin-arm64 ./cmd
-
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v3
-      with:
-        name: multi-arch-builds
-        path: dist/*
-
-  android:
-    name: Build Android
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: ${{ env.GO_VERSION }}
-
-    - name: Set up JDK
+    - name: Set up JDK 17
       uses: actions/setup-java@v4
       with:
         java-version: '17'
         distribution: 'temurin'
 
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
     - name: Set up Android SDK
       uses: android-actions/setup-android@v3
+      with:
+        cmdline-tools-version: 9477386
+        packages: |
+          platform-tools
+          platforms;android-${{ env.ANDROID_TARGET_API }}
+          build-tools;${{ env.BUILD_TOOLS_VERSION }}
+          ndk;${{ env.NDK_VERSION }}
+
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-android-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-android-
 
     - name: Install gomobile
       run: |
         go install golang.org/x/mobile/cmd/gomobile@latest
+        go install golang.org/x/mobile/cmd/gobind@latest
+        export PATH=$PATH:$(go env GOPATH)/bin
         gomobile init
 
-    - name: Build Android AAR
+    - name: Build Android APK
       run: |
-        mkdir -p dist/android
-        # 这里需要根据实际的 Android 项目结构调整
-        echo "Android 构建将在后续版本中实现"
+        export ANDROID_HOME=$ANDROID_SDK_ROOT
+        export ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}
+        export PATH=$PATH:$(go env GOPATH)/bin
+        
+        # 创建 Android 项目目录
+        mkdir -p android/app/src/main/java
+        mkdir -p android/app/src/main/res/values
+        mkdir -p android/app/src/main/res/drawable
+        mkdir -p dist
+        
+        # 构建 AAR 库
+        cd android
+        gomobile bind -target=android -androidapi=${{ env.ANDROID_API_LEVEL }} -o app/libs/singbox.aar ../pkg/mobile
+        
+        # 使用 gradle 构建 APK
+        ./gradlew assembleRelease
+        
+        # 复制 APK 到 dist 目录
+        cp app/build/outputs/apk/release/app-release-unsigned.apk ../dist/singbox-xboard-android.apk
 
-    - name: Upload Android artifact
+    - name: Sign APK
+      run: |
+        # 生成签名密钥（仅用于 CI/CD）
+        keytool -genkey -v -keystore release-key.jks -keyalg RSA -keysize 2048 -validity 10000 \
+          -alias singbox -dname "CN=SingBox, OU=Dev, O=SingBox, L=Unknown, S=Unknown, C=US" \
+          -storepass singbox123 -keypass singbox123
+        
+        # 签名 APK
+        jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 \
+          -keystore release-key.jks -storepass singbox123 \
+          dist/singbox-xboard-android.apk singbox
+        
+        # 优化 APK
+        ${ANDROID_SDK_ROOT}/build-tools/${{ env.BUILD_TOOLS_VERSION }}/zipalign -v 4 \
+          dist/singbox-xboard-android.apk \
+          dist/singbox-xboard-android-signed.apk
+        
+        mv dist/singbox-xboard-android-signed.apk dist/singbox-xboard-android.apk
+
+    - name: Upload APK artifact
       uses: actions/upload-artifact@v3
       with:
-        name: android-aar
-        path: dist/android/*
+        name: singbox-xboard-android
+        path: dist/singbox-xboard-android.apk
 
+  # 创建 Release
   release:
     name: Create Release
-    needs: [build, build-multi-arch]
+    needs: [build-desktop, build-android]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     
@@ -148,19 +191,25 @@ jobs:
       with:
         path: artifacts
 
-    - name: Create checksums
+    - name: Prepare release files
       run: |
-        cd artifacts
-        for dir in */; do
-          if [ -d "$dir" ]; then
-            cd "$dir"
-            for file in *; do
-              if [ -f "$file" ]; then
-                sha256sum "$file" > "$file.sha256"
-                mv "$file" "$file.sha256" ../
-              fi
-            done
-            cd ..
+        mkdir -p release
+        
+        # 移动所有构建产物到 release 目录
+        find artifacts -type f -exec mv {} release/ \;
+        
+        # 生成校验和
+        cd release
+        sha256sum * > SHA256SUMS.txt
+        
+        # 创建压缩包
+        for file in singbox-xboard-*; do
+          if [[ ! "$file" == *.apk ]] && [[ ! "$file" == *.txt ]]; then
+            if [[ "$file" == *.exe ]]; then
+              zip "${file%.exe}.zip" "$file"
+            else
+              tar -czf "$file.tar.gz" "$file"
+            fi
           fi
         done
 
@@ -169,39 +218,43 @@ jobs:
       with:
         name: Release ${{ github.ref_name }}
         body: |
-          ## Singbox Xboard Client ${{ github.ref_name }}
+          ## SingBox xBoard Client ${{ github.ref_name }}
           
           ### 下载说明
           
-          - **Windows**: 
-            - `singbox-xboard-windows-amd64.exe` (64位)
-            - `singbox-xboard-windows-386.exe` (32位)
+          #### 桌面版本
+          - **Windows**: `singbox-xboard-windows-amd64.exe` (64位) 或 `singbox-xboard-windows-386.exe` (32位)
+          - **macOS**: `singbox-xboard-darwin-amd64` (Intel) 或 `singbox-xboard-darwin-arm64` (Apple Silicon)
+          - **Linux**: `singbox-xboard-linux-amd64` (64位) 或 `singbox-xboard-linux-arm64` (ARM64)
           
-          - **macOS**: 
-            - `singbox-xboard-darwin-amd64` (Intel)
-            - `singbox-xboard-darwin-arm64` (Apple Silicon)
+          #### 移动版本
+          - **Android**: `singbox-xboard-android.apk` (支持 Android 5.0+)
           
-          - **Linux**: 
-            - `singbox-xboard-linux-amd64` (64位)
-            - `singbox-xboard-linux-armv7` (ARM 32位)
-            - `singbox-xboard-linux-arm64` (ARM 64位)
+          ### 安装说明
           
-          - **Android**: 
-            - 即将推出
+          #### Android APK 安装
+          1. 下载 `singbox-xboard-android.apk`
+          2. 在手机设置中允许"安装未知来源应用"
+          3. 点击 APK 文件进行安装
+          4. 首次运行时授予必要的权限
           
-          ### 使用方法
-          
+          #### 桌面版本安装
           1. 下载对应平台的文件
-          2. 赋予执行权限（Linux/macOS）：`chmod +x singbox-xboard-*`
-          3. 运行程序：`./singbox-xboard-*`
+          2. 解压（如果是压缩包）
+          3. 赋予执行权限（Linux/macOS）：`chmod +x singbox-xboard-*`
+          4. 运行程序
           
-          ### 更新日志
+          ### 更新内容
+          - 支持最新的 Hysteria2 协议
+          - 支持 VLESS + Reality + XTLS
+          - 完整的 xboard 面板对接
+          - 优化的 Android 客户端体验
+          - 自动订阅更新
+          - 流量统计功能
           
-          请查看 [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md)
-          
+          ### 校验和
+          请使用 `SHA256SUMS.txt` 文件验证下载文件的完整性。
         files: |
-          artifacts/*
+          release/*
         draft: false
         prerelease: false
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
