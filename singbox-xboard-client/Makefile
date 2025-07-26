@@ -88,7 +88,25 @@ linux:
 # 构建 Android (需要 Android NDK)
 android:
 	@echo "==> 构建 Android 版本..."
-	@echo "请参考 build/android/README.md 进行 Android 构建"
+	@if [ -z "$(ANDROID_HOME)" ]; then \
+		echo "错误: ANDROID_HOME 环境变量未设置"; \
+		exit 1; \
+	fi
+	@echo "安装 gomobile..."
+	go install golang.org/x/mobile/cmd/gomobile@latest
+	go install golang.org/x/mobile/cmd/gobind@latest
+	@echo "初始化 gomobile..."
+	gomobile init || true
+	@echo "构建 Android AAR..."
+	cd android && \
+	mkdir -p app/libs && \
+	gomobile bind -target=android -androidapi=21 -o app/libs/singbox.aar ../pkg/mobile
+	@echo "构建 APK..."
+	cd android && ./gradlew assembleRelease
+	@echo "复制 APK 到 build 目录..."
+	mkdir -p $(BUILD_DIR)
+	cp android/app/build/outputs/apk/release/app-release-unsigned.apk $(BUILD_DIR)/singbox-xboard-android.apk
+	@echo "Android APK 构建完成: $(BUILD_DIR)/singbox-xboard-android.apk"
 
 # 构建所有平台
 release: clean

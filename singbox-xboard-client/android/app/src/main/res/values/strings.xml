@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">SingBox xBoard</string>
+    <string name="connect">连接</string>
+    <string name="disconnect">断开连接</string>
+    <string name="connected">已连接</string>
+    <string name="disconnected">未连接</string>
+    <string name="subscription_url">订阅地址</string>
+    <string name="update_subscription">更新订阅</string>
+    <string name="refresh_subscription">刷新订阅</string>
+    <string name="select_node">选择节点</string>
+    <string name="traffic_upload">上传: %s</string>
+    <string name="traffic_download">下载: %s</string>
+    <string name="user_traffic">流量: %s / %s</string>
+    <string name="notification_channel_name">VPN 状态</string>
+    <string name="notification_channel_description">显示 VPN 连接状态</string>
+    <string name="notification_title">SingBox VPN</string>
+    <string name="notification_connected">VPN 已连接</string>
+    <string name="notification_disconnected">VPN 已断开</string>
+</resources>
