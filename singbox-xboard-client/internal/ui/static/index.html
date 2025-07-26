@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Singbox Xboard Client</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app">
+        <header>
+            <h1>Singbox Xboard Client</h1>
+            <div class="status-bar">
+                <span class="status-indicator" :class="{ 'active': isRunning }"></span>
+                <span>{{ isRunning ? '运行中' : '已停止' }}</span>
+                <span class="uptime" v-if="isRunning">运行时间: {{ formatUptime(uptime) }}</span>
+            </div>
+        </header>
+
+        <main>
+            <div class="container">
+                <!-- 订阅管理 -->
+                <section class="card">
+                    <h2>订阅管理</h2>
+                    <div class="form-group">
+                        <label>订阅地址</label>
+                        <div class="input-group">
+                            <input type="text" v-model="subscriptionUrl" placeholder="请输入 xboard 订阅地址">
+                            <button @click="updateSubscription" :disabled="!subscriptionUrl || loading">
+                                {{ loading ? '更新中...' : '更新订阅' }}
+                            </button>
+                        </div>
+                    </div>
+                    <div class="subscription-info" v-if="lastUpdate">
+                        <p>最后更新: {{ formatDate(lastUpdate) }}</p>
+                        <button @click="refreshSubscription" :disabled="loading" class="btn-secondary">
+                            刷新订阅
+                        </button>
+                    </div>
+                </section>
+
+                <!-- 用户信息 -->
+                <section class="card" v-if="userInfo">
+                    <h2>用户信息</h2>
+                    <div class="user-info">
+                        <div class="info-item">
+                            <span class="label">邮箱:</span>
+                            <span>{{ userInfo.email }}</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="label">流量:</span>
+                            <span>{{ formatBytes(userInfo.upload + userInfo.download) }} / {{ formatBytes(userInfo.total) }}</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="label">到期时间:</span>
+                            <span>{{ formatDate(userInfo.expire_time) }}</span>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 节点列表 -->
+                <section class="card" v-if="nodes.length > 0">
+                    <h2>节点列表</h2>
+                    <div class="node-list">
+                        <div class="node-item" v-for="node in nodes" :key="node.id" 
+                             :class="{ 'active': selectedNodeId === node.id }"
+                             @click="selectNode(node.id)">
+                            <div class="node-name">{{ node.name }}</div>
+                            <div class="node-info">
+                                <span class="node-type">{{ node.type }}</span>
+                                <span class="node-status" :class="{ 'online': node.status === 1 }">
+                                    {{ node.status === 1 ? '在线' : '离线' }}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 流量统计 -->
+                <section class="card">
+                    <h2>流量统计</h2>
+                    <div class="stats">
+                        <div class="stat-item">
+                            <span class="stat-label">上传</span>
+                            <span class="stat-value">{{ formatBytes(stats.upload) }}</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">下载</span>
+                            <span class="stat-value">{{ formatBytes(stats.download) }}</span>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 控制按钮 -->
+                <section class="controls">
+                    <button @click="toggleSingbox" class="btn-primary" :disabled="loading">
+                        {{ isRunning ? '停止' : '启动' }}
+                    </button>
+                    <button @click="restartSingbox" class="btn-secondary" :disabled="loading || !isRunning">
+                        重启
+                    </button>
+                </section>
+            </div>
+        </main>
+
+        <!-- 消息提示 -->
+        <div class="toast" v-if="message" :class="messageType">
+            {{ message }}
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
